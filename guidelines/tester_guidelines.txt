@@ -1,0 +1,169 @@
+# ============================================================================
+# TESTER AGENT — GUIDELINES
+# ============================================================================
+# Reference document for the Tester Agent.
+# Covers self-contained local unit testing strategy, pytest patterns, and
+# quality standards. Tests must be fully self-contained — NO imports from
+# the generated app/ package.
+# ============================================================================
+
+## 1. TESTING FRAMEWORK
+
+- **Framework**: pytest (latest stable)
+- **Scope**: Self-contained unit tests — NO imports from app/, NO server, NO HTTP
+- **Assertion style**: plain `assert` (pytest native)
+- **Fixtures**: `conftest.py` for shared setup (models defined inline)
+- **Coverage target**: minimum 80% line coverage
+
+## 2. TEST DIRECTORY STRUCTURE
+
+```
+tests/
+├── __init__.py
+├── conftest.py              # INLINE models, fixtures, in-memory DB
+├── test_<entity>.py         # One file per entity — inline service functions
+```
+
+## 3. TESTING APPROACH — SELF-CONTAINED TESTS
+
+### 3.1 Key Principle: No Imports from app/
+Tests MUST NOT import from the generated `app/` package. Instead:
+- **Models** are defined inline in `conftest.py` (same schema as the generated code)
+- **Service functions** are defined inline in each test file
+- Only dependencies: `pytest` and `sqlalchemy`
+
+### 3.2 What We Test
+- **Inline service functions** that replicate the core business logic
+- **Model creation & constraints** — create ORM objects, check fields
+- **CRUD operations** — create, read, update, delete via inline functions
+- **Business rules** — validate calculations, constraints, status transitions
+- **Edge cases** — empty inputs, duplicates, boundary values
+
+### 3.3 What We Do NOT Test
+- API endpoints (no TestClient, no httpx)
+- HTTP status codes or response envelopes
+- Server startup or middleware
+- Authentication middleware
+
+## 4. TEST FILE CONVENTIONS
+
+### 4.1 Naming
+- Test files: `test_<entity>.py`
+- Test functions: `test_<action>_<scenario>` (e.g., `test_create_product_valid_data`)
+- Test classes (optional): `TestProductService`
+- JSON keys: `conftest.py`, `test_product.py` — NO `tests/` prefix
+
+### 4.2 conftest.py — Inline Models + In-Memory Database
+
+```python
+import pytest
+from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text, func
+from sqlalchemy.orm import declarative_base, sessionmaker, relationship
+
+Base = declarative_base()
+
+# ── DEFINE ALL MODELS INLINE ──
+class Product(Base):
+    __tablename__ = "products"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, nullable=False)
+    price = Column(Float, nullable=False)
+    category = Column(String)
+    stock_quantity = Column(Integer, default=0)
+    description = Column(Text, default="")
+
+# ... repeat for Customer, Order, etc.
+
+@pytest.fixture(scope="module")
+def engine():
+    return create_engine("sqlite:///:memory:")
+
+@pytest.fixture(scope="module")
+def tables(engine):
+    Base.metadata.create_all(engine)
+    yield
+    Base.metadata.drop_all(engine)
+
+@pytest.fixture
+def db(engine, tables):
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    yield session
+    session.rollback()
+    session.close()
+```
+
+### 4.3 test_<entity>.py — Inline Service Functions + Tests
+
+```python
+from conftest import Product  # import model from conftest
+
+# ── INLINE SERVICE FUNCTION ──
+def create_product(db, name, price, category, stock_quantity=0, description=""):
+    product = Product(name=name, price=price, category=category,
+                      stock_quantity=stock_quantity, description=description)
+    db.add(product)
+    db.commit()
+    db.refresh(product)
+    return product
+
+def test_create_product_valid(db):
+    product = create_product(db, "Widget", 29.99, "Tools", 10)
+    assert product.id is not None
+    assert product.name == "Widget"
+    assert product.price == 29.99
+```
+
+## 5. TEST CATEGORIES
+
+### 5.1 Happy Path Tests (REQUIRED)
+- Create entity with valid data → object returned with correct fields
+- Read entity by ID → correct object returned
+- List entities → returns list of objects
+- Update entity → fields updated correctly
+- Delete entity → entity removed from DB
+
+### 5.2 Validation Tests (REQUIRED)
+- Create with missing required fields → raises exception
+- Duplicate unique fields → raises exception
+- Invalid foreign key references → raises exception
+
+### 5.3 Business Logic Tests
+- Price calculations are correct
+- Status transitions follow rules (e.g., pending → shipped → completed)
+- Stock quantity updates on order creation
+- Total price = quantity × unit price
+
+### 5.4 Edge Cases
+- Empty string inputs
+- Zero/negative quantities
+- Very large values
+
+## 6. DATABASE TEST PATTERNS
+
+### 6.1 In-Memory SQLite
+- ALWAYS use `sqlite:///:memory:` — fast and isolated
+- Models defined INLINE in conftest.py (not imported from app/)
+- Use fixtures for setup — never rely on external DB state
+
+### 6.2 Test Isolation
+- Each test must be independent
+- Use session rollback between tests
+- No test ordering dependencies
+
+## 7. IMPORT RULES (CRITICAL)
+- ✅ `import pytest`
+- ✅ `from sqlalchemy import ...`
+- ✅ `from conftest import Product, Customer, Order` (inline models)
+- ❌ `from app.` anything
+- ❌ `from fastapi` anything
+- ❌ `import httpx` or `TestClient`
+
+## 7. TEST QUALITY STANDARDS
+
+- No `print()` statements in tests
+- Tests must pass in isolation AND when run together
+- No external API calls — everything is local
+- Tests must complete within 60 seconds total
+- Meaningful test names that describe the scenario
+- No hardcoded paths — use relative imports

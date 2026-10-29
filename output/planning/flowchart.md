@@ -1,0 +1,10 @@
+graph TD
+    A[Client] -->|JWT Auth| B[API Gateway]
+    B --> C[Products Service]
+    B --> D[Customers Service]
+    B --> E[Orders Service]
+    B --> F[Dashboard Service]
+    C --> G[Database]
+    D --> G[Database]
+    E --> G[Database]
+    F --> G[Database]

@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: product-inventory-config
+data:
+  APP_NAME: "Product Inventory API"
+  LOG_LEVEL: "INFO"
